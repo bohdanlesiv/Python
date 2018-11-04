@@ -1,5 +1,10 @@
+import csv
+import json
+import os
+import pickle
 import re
 from datetime import datetime
+import shelve
 from xlrd import open_workbook
 
 
@@ -20,11 +25,11 @@ class DateValidationError(ValidationError):
 
 
 class FileConverter(object):
-    def __init__(self, filename, columns, errlogfile, extention):
-        self.filename = filename,
-        self.columns = columns,
-        self.errlogfile = errlogfile,
-        self.extention = extention
+
+    def __init__(self, filename):
+        if not os.path.exists(filename):
+            raise FileNotFoundError
+        self.book = open_workbook(filename)
 
     @staticmethod
     def name_validation(name):
@@ -45,44 +50,103 @@ class FileConverter(object):
     @staticmethod
     def date_validation(date):
         try:
-            format_str = '%d-%m-%Y'  # The format
+            format_str = '%Y-%m-%d'
             datetime.strptime(date, format_str).date()
         except:
             raise DateValidationError
 
+    def columns_processing(self, columns):
+        self.list_xls = []
+        self.columns = columns
+        sheet = self.book.sheet_by_index(0)
+        data = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
+        for row in range(1, sheet.nrows):
+            dict_xls = {}
+            for col in columns:
+                idx = data.index(col)
+                dict_xls.update({col: sheet.cell_value(row, idx)})
+            self.list_xls.append(dict_xls)
+
+    def validation(self):
+        registry = {'FileConverter': FileConverter}
+        self.val_list = []
+        for idx, row in enumerate(self.list_xls):
+            for col in self.columns:
+                line = row.get(col)
+                val_fn = self.columns.get(col)
+                try:
+                    getattr(registry['FileConverter'], val_fn)(str(line))
+                except ValidationError:
+                    # print(row)
+                    # print(val_fn)
+                    self.val_list.append({'row': row, 'rule': val_fn, 'index': idx})
+                    # val_dict.update({'row': row, 'rule': val_fn, 'index': idx})
+                    # try:
+                    #     self.list_xls.remove(row)
+                    # except ValueError:
+                    #     pass
+                except Exception as e:
+                    pass
+
+        for vrow in self.val_list:
+            try:
+                self.list_xls.remove(vrow.get('row'))
+            except Exception:
+                pass
+
+    def save_err_log(self, errfilenm='errors.log'):
+        with open(os.path.join(os.curdir, errfilenm), 'w') as flog:
+            for row in self.val_list:
+                flog.write(str(row) + '\n')
+
+    def save_to_json(self, flnm='output.json'):
+        with open(os.path.join(os.curdir, flnm), 'w') as fjson:
+            json.dump(self.list_xls, fjson, ensure_ascii=False)
+
+    def save_to_csv(self, flnm='output.csv'):
+        with open(os.path.join(os.curdir, flnm), 'w') as fcsv:
+            w = csv.DictWriter(fcsv, self.columns.keys())
+            w.writeheader()
+            for rows in self.list_xls:
+                w.writerow(rows)
+
+    def save_to_bin(self, flnm='output.bin'):
+        with open(os.path.join(os.curdir, flnm), 'wb') as fbin:
+            pickle.dump(self.list_xls, fbin)
+
+    def save_to_shelve(self, flnm='output.shlv'):
+        sh = shelve.open(os.path.join(os.curdir, flnm))
+        sh['data_xls'] = self.list_xls
+        sh.close()
 
 
 
-book = open_workbook(r'D:\python\class_work\book.xlsx')
-sheet = book.sheet_by_index(0)
 
-mp ={}
-cells = sheet.row_slice(rowx=0,
-                        start_colx=0,
-                        end_colx=sheet.ncols)
-for k,i in enumerate(cells):
-    mp.update({i.value:k})
-
-
-x= [1,2,3,4]
-y= ['a','s','b','b']
-
-matrix = []
-for i in range(len(x)):
-    matrix.append(i)
-
-for i in range(len(x)):
-    matrix.append(x[i])
-
-for i in range(len(x)):
-    matrix[i] = [matrix[i],y[i]]
-
-for i in range(len(x)):
-    matrix[i] = [*matrix[i],y[i]]
-
-for i in range(len(x)):
-    matrix[i] = [*matrix[i],y[i]]
-
-
-print(matrix)
-02120
+#
+#
+# dict2 = {}
+# book = open_workbook(r'D:\python\class_work\book.xlsx')
+# sheet = book.sheet_by_index(0)
+#
+# print(sheet.ncols)
+# print(sheet.name)
+# print(sheet.col_slice(0))
+#
+# data = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
+# print(data)
+#
+#
+# for index, value in enumerate(data):
+#     print('Index {} Value {}'.format(index,value))
+#
+#
+#
+#
+# for i in range(1,sheet.nrows):
+#      x.append(sheet.cell_value(i,1))
+#
+#
+# with open('mycsvfile.csv', 'w') as f:  # Just use 'w' mode in 3.x
+#      w = csv.writer(f)
+#      w.writerow(dict2.keys())
+#      w.writerow(dict2.values())
